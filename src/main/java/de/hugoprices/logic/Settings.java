@@ -58,6 +58,10 @@ public final class Settings {
     /** Preise von friendswithmoney.net holen (Betreiber hat zugestimmt). */
     /** Zeile "Wert: x64 = ... · Inventar x320 = ..." anzeigen. */
     public boolean showValue = true;
+    /** Vermögen: nur Items zählen, deren Gesamtwert mindestens so hoch ist. */
+    public long wealthMinValue = 25_000;
+    /** Knopf "Vermögen" oben am Inventar anzeigen. */
+    public boolean wealthButton = true;
     public boolean fwmEnabled = true;
     public String fwmBaseUrl = "https://www.friendswithmoney.net/api/marketplace/items/";
     /** So lange (Sekunden) werden FWM-Preise zwischengespeichert. */
@@ -115,6 +119,10 @@ public final class Settings {
             # Schreibt das zuletzt geoeffnete AH-/Order-Menue nach config/hugoprices-letztes-menue.txt (Fehlersuche).
             dumpMenus=true
 
+            # Vermoegen: nur Items mit mindestens diesem Gesamtwert zaehlen; Knopf oben am Inventar an/aus.
+            wealthMinValue=25000
+            wealthButton=true
+
             # Preise von friendswithmoney.net (hoechster Order-Preis, Durchschnitte). Abruf hoechstens 1x pro Sekunde,
             # jedes Item wird so viele Sekunden zwischengespeichert.
             fwmEnabled=true
@@ -169,6 +177,8 @@ public final class Settings {
             s.hudEnabled = bool(p, "hudEnabled", s.hudEnabled);
             s.hudOffsetY = (int) Math.max(0, longValue(p, "hudOffsetY", s.hudOffsetY));
             s.dumpMenus = bool(p, "dumpMenus", s.dumpMenus);
+            s.wealthMinValue = Math.max(0, longValue(p, "wealthMinValue", s.wealthMinValue));
+            s.wealthButton = bool(p, "wealthButton", s.wealthButton);
             s.fwmEnabled = bool(p, "fwmEnabled", s.fwmEnabled);
             String fwmUrl = p.getProperty("fwmBaseUrl");
             if (fwmUrl != null && !fwmUrl.isBlank()) {

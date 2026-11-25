@@ -1,5 +1,6 @@
 package de.hugoprices;
 
+import de.hugoprices.logic.ChestStore;
 import de.hugoprices.logic.FwmClient;
 import de.hugoprices.logic.FwmParser;
 import de.hugoprices.logic.ItemKeyBuilder;
@@ -15,13 +16,24 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
+import net.fabricmc.fabric.api.client.screen.v1.Screens;
+import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.item.Item;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
 import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback;
@@ -52,6 +64,14 @@ public final class HugoPricesClient implements ClientModInitializer {
     private static KeyMapping sellMenuKey;
     /** Zeitpunkt des ersten Drucks auf "Alles verkaufen" (zweiter Druck innerhalb von 3 s bestätigt). */
     private static long sellAllArmedAt;
+    private static KeyMapping wealthKey;
+    public static final ChestStore CHESTS = new ChestStore();
+    private static Path chestsFile;
+    /** Letzter Rechtsklick auf einen Block (um Kisten von Server-Menüs zu unterscheiden). */
+    private static long lastUseMillis;
+    private static BlockPos lastUsePos;
+    private static String lastUseBlock = "";
+    private static Map<String, Item> itemsById;
     private static Path pricesFile;
     private static Path dumpFile;
     private static long sessionCounter;
@@ -67,23 +87,51 @@ public final class HugoPricesClient implements ClientModInitializer {
         pricesFile = configDir.resolve("hugoprices-preise.txt");
         dumpFile = configDir.resolve("hugoprices-letztes-menue.txt");
         BOOK.load(pricesFile, System.currentTimeMillis(), settings.maxAgeMinutes * 60_000L);
+        chestsFile = configDir.resolve("hugoprices-kisten.txt");
+        CHESTS.load(chestsFile);
+
+        UseBlockCallback.EVENT.register((player, level, hand, hit) -> {
+            if (level.isClientSide()) {
+                lastUseMillis = System.currentTimeMillis();
+                lastUsePos = hit.getBlockPos();
+                lastUseBlock = BuiltInRegistries.BLOCK.getKey(level.getBlockState(hit.getBlockPos()).getBlock()).getPath();
+            }
+            return InteractionResult.PASS;
+        });
 
         // Menü offen: alle paar Ticks die Einträge lesen. Jedes geöffnete Menü ist eine eigene Sitzung.
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if (!(screen instanceof AbstractContainerScreen<?> container)) {
                 return;
             }
+            if (screen instanceof InventoryScreen inv && settings.wealthButton) {
+                addWealthButton(client, inv);
+            }
+            String chestKey = chestKeyFor(client, container);
             long session = ++sessionCounter;
             int[] counter = {0};
             ScreenEvents.afterTick(screen).register(s -> {
                 if (counter[0]++ % settings.scanEveryTicks == 0) {
                     scan(container, session);
+                    if (chestKey != null) {
+                        snapshotChest(container, chestKey);
+                    }
                 }
             });
-            ScreenEvents.remove(screen).register(s -> onMenuClosed());
+            ScreenEvents.remove(screen).register(s -> {
+                if (chestKey != null) {
+                    snapshotChest(container, chestKey);
+                    CHESTS.saveIfDirty(chestsFile);
+                }
+                onMenuClosed();
+            });
             // Verkaufs-Tasten auch im Inventar/Menü: dann zählt das Item unter der Maus.
             ScreenKeyboardEvents.afterKeyPress(screen).register((scr, key) -> {
                 if (SellAutomation.busy() || !(scr instanceof AbstractContainerScreen<?> acs)) {
+                    return;
+                }
+                if (wealthKey.matches(key)) {
+                    client.gui.setScreen(new WealthScreen(scr));
                     return;
                 }
                 ItemStack hovered = hoveredStack(acs);
@@ -97,7 +145,10 @@ public final class HugoPricesClient implements ClientModInitializer {
                 }
             });
         });
-        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> BOOK.saveIfDirty(pricesFile));
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+            BOOK.saveIfDirty(pricesFile);
+            CHESTS.saveIfDirty(chestsFile);
+        });
 
         // Tooltip: Preise anhängen.
         ItemTooltipCallback.EVENT.register((stack, context, flag, lines) -> addPriceLines(stack, lines));
@@ -110,6 +161,7 @@ public final class HugoPricesClient implements ClientModInitializer {
         KeyMapping.Category cat = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("hugoprices", "main"));
         sellAllKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.hugoprices.sell_all", -1, cat));
         sellMenuKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.hugoprices.sell_menu", 78, cat)); // N
+        wealthKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.hugoprices.wealth", -1, cat));
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (sellAllKey.consumeClick()) {
                 onSellAllKey(client);
@@ -117,8 +169,159 @@ public final class HugoPricesClient implements ClientModInitializer {
             while (sellMenuKey.consumeClick()) {
                 onSellMenuKey(client);
             }
+            while (wealthKey.consumeClick()) {
+                if (client.player != null) {
+                    client.gui.setScreen(new WealthScreen(null));
+                }
+            }
             SellAutomation.tick(client);
         });
+    }
+
+    // ---------- Vermögen / Kisten ----------
+
+    private static String serverPrefix(Minecraft mc) {
+        var sd = mc.getCurrentServer();
+        return (sd != null && sd.ip != null ? sd.ip.toLowerCase(java.util.Locale.ROOT) : "local") + "|";
+    }
+
+    private static boolean isStorageBlock(String path) {
+        return path.endsWith("chest") || path.equals("barrel") || path.endsWith("shulker_box")
+                || path.equals("hopper") || path.equals("dispenser") || path.equals("dropper");
+    }
+
+    /** Schlüssel der Kiste, wenn dieses Menü gerade durch Rechtsklick auf eine Kiste geöffnet wurde, sonst null. */
+    private static String chestKeyFor(Minecraft mc, AbstractContainerScreen<?> screen) {
+        if (screen instanceof InventoryScreen || mc.level == null || lastUsePos == null
+                || System.currentTimeMillis() - lastUseMillis > 1500 || !isStorageBlock(lastUseBlock)
+                || SellAutomation.busy() || ModeDetector.detect(screen.getTitle().getString(), settings).isPresent()) {
+            return null;
+        }
+        lastUseMillis = 0; // nur für genau dieses Menü
+        String prefix = serverPrefix(mc);
+        if (lastUseBlock.equals("ender_chest")) {
+            return prefix + "enderchest";
+        }
+        String dim = mc.level.dimension().identifier().toString();
+        return prefix + dim + "|" + lastUsePos.getX() + "," + lastUsePos.getY() + "," + lastUsePos.getZ();
+    }
+
+    private static void snapshotChest(AbstractContainerScreen<?> screen, String key) {
+        Map<String, Integer> items = new HashMap<>();
+        int top = 0;
+        for (Slot slot : screen.getMenu().slots) {
+            if (slot.container instanceof Inventory) {
+                continue;
+            }
+            top++;
+            ItemStack st = slot.getItem();
+            if (!st.isEmpty()) {
+                items.merge(keyOf(st), st.getCount(), Integer::sum);
+            }
+        }
+        if (top == 0) {
+            return;
+        }
+        CHESTS.put(key, items, System.currentTimeMillis());
+        // Doppelkiste: die andere Hälfte nicht doppelt zählen
+        if (top >= 54 && !key.endsWith("enderchest")) {
+            int bar = key.lastIndexOf('|');
+            String[] xyz = key.substring(bar + 1).split(",");
+            try {
+                BlockPos pos = new BlockPos(Integer.parseInt(xyz[0]), Integer.parseInt(xyz[1]), Integer.parseInt(xyz[2]));
+                for (Direction d : new Direction[] {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
+                    BlockPos n = pos.relative(d);
+                    CHESTS.remove(key.substring(0, bar + 1) + n.getX() + "," + n.getY() + "," + n.getZ());
+                }
+            } catch (RuntimeException ignored) {
+                // Schlüssel ohne Koordinaten
+            }
+        }
+    }
+
+    private static void addWealthButton(Minecraft mc, InventoryScreen inv) {
+        int left = intField(inv, "leftPos", (inv.width - 176) / 2);
+        int top = intField(inv, "topPos", (inv.height - 166) / 2);
+        int w = intField(inv, "imageWidth", 176);
+        int y = Math.max(2, top - 18);
+        Button b = Button.builder(Component.literal("Vermoegen"), btn -> mc.gui.setScreen(new WealthScreen(inv)))
+                .bounds(left + w - 62, y, 62, 16)
+                .tooltip(Tooltip.create(Component.literal("Wert von Inventar und gespeicherten Kisten")))
+                .build();
+        Screens.getWidgets(inv).add(b);
+    }
+
+    private static int intField(Object o, String name, int fallback) {
+        try {
+            java.lang.reflect.Field f = AbstractContainerScreen.class.getDeclaredField(name);
+            f.setAccessible(true);
+            return f.getInt(o);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return fallback;
+        }
+    }
+
+    static Map<String, Integer> chestTotals() {
+        return CHESTS.totals(serverPrefix(Minecraft.getInstance()));
+    }
+
+    static Map<String, Integer> chestCounts() {
+        return CHESTS.chestCounts(serverPrefix(Minecraft.getInstance()));
+    }
+
+    static int chestCount() {
+        return CHESTS.count(serverPrefix(Minecraft.getInstance()));
+    }
+
+    static void clearChestsForServer() {
+        CHESTS.clearPrefix(serverPrefix(Minecraft.getInstance()));
+        CHESTS.saveIfDirty(chestsFile);
+    }
+
+    static Map<String, Integer> inventoryTotals() {
+        Map<String, Integer> out = new HashMap<>();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) {
+            for (ItemStack st : mc.player.getInventory().getNonEquipmentItems()) {
+                if (!st.isEmpty()) {
+                    out.merge(keyOf(st), st.getCount(), Integer::sum);
+                }
+            }
+        }
+        return out;
+    }
+
+    static long settingsWealthMin() {
+        return settings.wealthMinValue;
+    }
+
+    static String currency() {
+        return settings.currencySymbol;
+    }
+
+    /** Symbol-Stack für einen gespeicherten Schlüssel wie "minecraft:diamond" oder "minecraft:book|...". */
+    static ItemStack stackForKey(String key) {
+        if (itemsById == null) {
+            Map<String, Item> m = new HashMap<>();
+            for (Item it : BuiltInRegistries.ITEM) {
+                m.put(BuiltInRegistries.ITEM.getKey(it).toString(), it);
+            }
+            itemsById = m;
+        }
+        int bar = key.indexOf('|');
+        Item it = itemsById.get(bar < 0 ? key : key.substring(0, bar));
+        return it == null ? ItemStack.EMPTY : new ItemStack(it);
+    }
+
+    /** Stückpreis für einen Schlüssel: normale Items über FWM/Spiel, verzauberte nur über im Spiel gesehene Preise. */
+    static long unitPriceForKey(String key, ItemStack icon) {
+        if (key.indexOf('|') < 0) {
+            return unitPriceFor(icon);
+        }
+        long maxAge = settings.maxAgeMinutes * 60_000L;
+        return BOOK.get(Mode.ORDER, key, System.currentTimeMillis(), maxAge).map(PriceBook.Entry::price)
+                .orElseGet(() -> BOOK.get(Mode.AH, key, System.currentTimeMillis(), maxAge)
+                        .map(PriceBook.Entry::price).orElse(0L));
     }
 
     private static void onSellAllKey(Minecraft mc) {

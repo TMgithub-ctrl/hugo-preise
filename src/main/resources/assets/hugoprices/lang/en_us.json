@@ -1,5 +1,6 @@
 {
   "key.category.hugoprices.main": "Hugo Prices",
   "key.hugoprices.sell_all": "Sell all: held / hovered item (press twice)",
-  "key.hugoprices.sell_menu": "Sell menu: held / hovered item"
+  "key.hugoprices.sell_menu": "Sell menu: held / hovered item",
+  "key.hugoprices.wealth": "Show net worth"
 }

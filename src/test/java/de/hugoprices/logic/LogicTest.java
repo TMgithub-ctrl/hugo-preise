@@ -107,6 +107,23 @@ public final class LogicTest {
         junk.loadLines(java.util.List.of("kaputt", "ORDER\tx\tabc\t1", "FOO\tx\t1\t1"), 0, day);
         eq(0, junk.size(), "kaputte zeilen ignoriert");
 
+        // Kisten-Speicher
+        ChestStore cs = new ChestStore();
+        cs.put("srv|ow|1,64,1", java.util.Map.of("minecraft:diamond", 64, "minecraft:stone", 10), 1000);
+        cs.put("srv|ow|5,64,5", java.util.Map.of("minecraft:diamond", 6), 2000);
+        cs.put("other|ow|1,64,1", java.util.Map.of("minecraft:diamond", 999), 3000);
+        eq(70, cs.totals("srv|").get("minecraft:diamond"), "kisten summe");
+        eq(2, cs.chestCounts("srv|").get("minecraft:diamond"), "kisten anzahl");
+        eq(2, cs.count("srv|"), "kisten pro server");
+        cs.put("srv|ow|5,64,5", java.util.Map.of(), 4000);
+        eq(64, cs.totals("srv|").get("minecraft:diamond"), "geleerte kiste");
+        ChestStore cs2 = new ChestStore();
+        cs2.loadLines(cs.toLines());
+        eq(64, cs2.totals("srv|").get("minecraft:diamond"), "kisten geladen");
+        eq(999, cs2.totals("other|").get("minecraft:diamond"), "anderer server getrennt");
+        eq(2, cs2.clearPrefix("srv|"), "kisten geloescht");
+        eq(0, cs2.count("srv|"), "kisten leer");
+
         // FriendsWithMoney-Statistik (gekürzte echte Antwort)
         String fwmJson = "{\"ok\":true,\"item\":{\"itemKey\":\"netherite_ingot\"},\"stats\":["
                 + "{\"period\":\"1h\",\"periodMinutes\":60,\"ahAvgPrice\":\"1554920.18796992\","
