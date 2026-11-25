@@ -9,10 +9,14 @@ import de.hugoprices.logic.PriceBook;
 import de.hugoprices.logic.PriceExtractor;
 import de.hugoprices.logic.Quote;
 import de.hugoprices.logic.Settings;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -35,24 +39,36 @@ public final class HugoPricesClient implements ClientModInitializer {
     public static final PriceBook BOOK = new PriceBook();
     private static Settings settings = new Settings();
     private static MarketClient market;
+    private static Path pricesFile;
+    private static Path dumpFile;
+    private static long sessionCounter;
+    /** Inhalt des zuletzt gelesenen AH-/Order-Menüs (für die Fehlersuche-Datei). */
+    private static String lastDump;
 
     @Override
     public void onInitializeClient() {
         settings = Settings.load(FabricLoader.getInstance().getConfigDir().resolve("hugoprices.properties"));
         market = new MarketClient(settings);
+        Path configDir = FabricLoader.getInstance().getConfigDir();
+        pricesFile = configDir.resolve("hugoprices-preise.txt");
+        dumpFile = configDir.resolve("hugoprices-letztes-menue.txt");
+        BOOK.load(pricesFile, System.currentTimeMillis(), settings.maxAgeMinutes * 60_000L);
 
-        // Menü offen: alle paar Ticks die Einträge lesen (Ersatzquelle).
+        // Menü offen: alle paar Ticks die Einträge lesen. Jedes geöffnete Menü ist eine eigene Sitzung.
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if (!(screen instanceof AbstractContainerScreen<?> container)) {
                 return;
             }
+            long session = ++sessionCounter;
             int[] counter = {0};
             ScreenEvents.afterTick(screen).register(s -> {
                 if (counter[0]++ % settings.scanEveryTicks == 0) {
-                    scan(container);
+                    scan(container, session);
                 }
             });
+            ScreenEvents.remove(screen).register(s -> onMenuClosed());
         });
+        ClientLifecycleEvents.CLIENT_STOPPING.register(client -> BOOK.saveIfDirty(pricesFile));
 
         // Tooltip: Preise anhängen.
         ItemTooltipCallback.EVENT.register((stack, context, flag, lines) -> addPriceLines(stack, lines));
@@ -61,14 +77,35 @@ public final class HugoPricesClient implements ClientModInitializer {
         BlockPriceHud.register(settings);
     }
 
-    private static void scan(AbstractContainerScreen<?> screen) {
-        Optional<Mode> mode = ModeDetector.detect(screen.getTitle().getString(), settings);
+    private static void onMenuClosed() {
+        BOOK.saveIfDirty(pricesFile);
+        String dump = lastDump;
+        if (settings.dumpMenus && dump != null) {
+            lastDump = null;
+            try {
+                Files.writeString(dumpFile, dump, StandardCharsets.UTF_8);
+            } catch (Exception e) {
+                // egal, nur zur Fehlersuche
+            }
+        }
+    }
+
+    private static void scan(AbstractContainerScreen<?> screen, long session) {
+        String title = screen.getTitle().getString();
+        Optional<Mode> mode = ModeDetector.detect(title, settings);
         if (mode.isEmpty()) {
             return;
         }
+        StringBuilder dump = settings.dumpMenus ? new StringBuilder() : null;
+        if (dump != null) {
+            dump.append("Menue-Titel: ").append(title).append("\nErkannt als: ").append(mode.get())
+                    .append("\nZeit: ").append(java.time.LocalDateTime.now()).append("\n\n");
+        }
         long now = System.currentTimeMillis();
         long maxAge = settings.maxAgeMinutes * 60_000L;
+        int slotNr = -1;
         for (Slot slot : screen.getMenu().slots) {
+            slotNr++;
             if (slot.container instanceof Inventory) {
                 continue; // eigenes Inventar überspringen, nur die Menü-Einträge zählen
             }
@@ -76,7 +113,19 @@ public final class HugoPricesClient implements ClientModInitializer {
             if (stack.isEmpty()) {
                 continue;
             }
-            Optional<PriceExtractor.Result> found = PriceExtractor.extract(loreOf(stack), settings);
+            List<String> lore = loreOf(stack);
+            Optional<PriceExtractor.Result> found = PriceExtractor.extract(lore, settings);
+            if (dump != null) {
+                dump.append("[Slot ").append(slotNr).append("] ").append(keyOf(stack))
+                        .append(" x").append(stack.getCount()).append(" \"").append(stack.getHoverName().getString())
+                        .append("\"\n");
+                for (String l : lore) {
+                    dump.append("    | ").append(l).append('\n');
+                }
+                dump.append("    -> erkannter Preis: ")
+                        .append(found.map(f -> f.price() + (f.perPieceHint() ? " (pro Stueck)" : "")).orElse("keiner"))
+                        .append("\n\n");
+            }
             if (found.isEmpty()) {
                 continue;
             }
@@ -85,11 +134,19 @@ public final class HugoPricesClient implements ClientModInitializer {
             if (total && !found.get().perPieceHint()) {
                 price = PriceExtractor.perPiece(price, stack.getCount());
             }
-            BOOK.observe(mode.get(), keyOf(stack), price, now, maxAge);
+            BOOK.observe(mode.get(), keyOf(stack), price, now, maxAge, session);
+        }
+        if (dump != null) {
+            lastDump = dump.toString();
         }
     }
 
     static void addPriceLines(ItemStack stack, List<Component> lines) {
+        addPriceLines(stack, lines, false);
+    }
+
+    /** @param hint true (Anzeige oben rechts): zeigt einen Hinweis, wenn noch kein Preis bekannt ist */
+    static void addPriceLines(ItemStack stack, List<Component> lines, boolean hint) {
         if (stack.isEmpty()) {
             return;
         }
@@ -144,6 +201,12 @@ public final class HugoPricesClient implements ClientModInitializer {
                     lines.add(Component.literal("Order: keine Order gefunden").withStyle(ChatFormatting.GRAY));
                 }
             }
+        }
+        if (hint && lines.isEmpty() && !loading && webError == null) {
+            lines.add(Component.literal("Noch kein Preis bekannt").withStyle(ChatFormatting.GRAY));
+            lines.add(Component.literal("/order " + BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath()
+                    + " oeffnen").withStyle(ChatFormatting.DARK_GRAY));
+            return;
         }
         if (loading) {
             lines.add(Component.literal("Preise werden geladen ...").withStyle(ChatFormatting.DARK_GRAY));

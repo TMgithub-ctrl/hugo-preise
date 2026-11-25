@@ -85,6 +85,28 @@ public final class LogicTest {
         b.observe(Mode.AH, "x", 900, max + 6000, max);
         eq(900L, b.get(Mode.AH, "x", max + 7000, max).get().price(), "neu nach ablauf");
 
+        // Sitzungen: innerhalb eines Menüs zählt der beste Wert, ein neues Menü ersetzt alte Werte
+        PriceBook sb = new PriceBook();
+        long day = 24 * 60 * 60_000L;
+        sb.observe(Mode.ORDER, "stone", 50, 0, day, 1);
+        sb.observe(Mode.ORDER, "stone", 30, 10, day, 1);
+        eq(50L, sb.get(Mode.ORDER, "stone", 20, day).get().price(), "sitzung bester wert");
+        sb.observe(Mode.ORDER, "stone", 40, 100, day, 2);
+        eq(40L, sb.get(Mode.ORDER, "stone", 200, day).get().price(), "neue sitzung ersetzt");
+        sb.observe(Mode.AH, "dirt", 7, 100, day, 2);
+
+        // Speichern und Laden
+        PriceBook loaded = new PriceBook();
+        loaded.loadLines(sb.toLines(), 300, day);
+        eq(40L, loaded.get(Mode.ORDER, "stone", 300, day).get().price(), "geladen order");
+        eq(7L, loaded.get(Mode.AH, "dirt", 300, day).get().price(), "geladen ah");
+        PriceBook old = new PriceBook();
+        old.loadLines(sb.toLines(), day + 1000, day);
+        eq(0, old.size(), "zu alte werte nicht geladen");
+        PriceBook junk = new PriceBook();
+        junk.loadLines(java.util.List.of("kaputt", "ORDER\tx\tabc\t1", "FOO\tx\t1\t1"), 0, day);
+        eq(0, junk.size(), "kaputte zeilen ignoriert");
+
         // Formatierung
         eq("$1.500.000", MoneyFormat.format(1500000, "$"), "format");
         eq("$750", MoneyFormat.format(750, "$"), "format klein");

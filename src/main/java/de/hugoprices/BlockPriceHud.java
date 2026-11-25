@@ -60,7 +60,7 @@ final class BlockPriceHud {
         ItemStack stack = item.getDefaultInstance();
 
         List<Component> prices = new ArrayList<>();
-        HugoPricesClient.addPriceLines(stack, prices);
+        HugoPricesClient.addPriceLines(stack, prices, true);
         if (prices.isEmpty()) {
             return;
         }

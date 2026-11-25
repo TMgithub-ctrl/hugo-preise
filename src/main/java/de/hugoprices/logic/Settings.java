@@ -31,12 +31,12 @@ public final class Settings {
     public boolean showOrder = true;
     public String currencySymbol = "$";
     /** Wie lange ein gemerkter Preis angezeigt wird, ohne dass er erneut gesehen wurde. */
-    public long maxAgeMinutes = 15;
+    public long maxAgeMinutes = 1440;
     /** Alle wie viele Ticks (20 Ticks = 1 Sekunde) das offene Menü gelesen wird. */
     public int scanEveryTicks = 5;
 
     /** Live-Preise von hugosmp-market.net abrufen (true) oder nur im Spiel mitgelesene Preise nutzen (false). */
-    public boolean webEnabled = true;
+    public boolean webEnabled = false;
     /** Adresse des Marktdaten-Stroms. Der Item-Schlüssel wird hinten angehängt. */
     public String webBaseUrl = "https://hugosmp-market.net/api/stream/item?item=";
     /** So lange (Sekunden) werden abgerufene Preise zwischengespeichert, bevor neu gefragt wird. */
@@ -53,6 +53,8 @@ public final class Settings {
     public boolean hudEnabled = true;
     /** Abstand der Anzeige vom oberen Bildschirmrand (Pixel, GUI-Skala). */
     public int hudOffsetY = 4;
+    /** Schreibt das zuletzt gelesene AH-/Order-Menü in eine Textdatei (zur Fehlersuche). */
+    public boolean dumpMenus = true;
 
     private static final String DEFAULT_FILE = """
             # Cripzy's Hugo Preise - Einstellungen. Listen werden mit Komma getrennt, Gross-/Kleinschreibung egal.
@@ -77,12 +79,13 @@ public final class Settings {
             showOrder=true
             currencySymbol=$
 
-            # So lange (Minuten) bleibt ein gemerkter Preis sichtbar, wenn du ihn nicht erneut siehst.
-            maxAgeMinutes=15
+            # So lange (Minuten) bleibt ein gemerkter Preis sichtbar, wenn du ihn nicht erneut siehst (1440 = 1 Tag).
+            maxAgeMinutes=1440
             scanEveryTicks=5
 
             # Live-Preise von hugosmp-market.net (true) oder nur Preise nutzen, die du im Spiel gesehen hast (false).
-            webEnabled=true
+            # Achtung: hugosmp-market.net blockt Mods seit Ende 2026 per Bot-Schutz (HTTP 403).
+            webEnabled=false
             webBaseUrl=https://hugosmp-market.net/api/stream/item?item=
             # So lange (Sekunden) wird ein abgerufener Preis zwischengespeichert.
             webCacheSeconds=60
@@ -99,6 +102,9 @@ public final class Settings {
             hudEnabled=true
             # Abstand vom oberen Rand, z. B. hoeher setzen, falls dort schon etwas anderes angezeigt wird.
             hudOffsetY=4
+
+            # Schreibt das zuletzt geoeffnete AH-/Order-Menue nach config/hugoprices-letztes-menue.txt (Fehlersuche).
+            dumpMenus=true
             """;
 
     public static Settings load(Path file) {
@@ -146,6 +152,7 @@ public final class Settings {
             }
             s.hudEnabled = bool(p, "hudEnabled", s.hudEnabled);
             s.hudOffsetY = (int) Math.max(0, longValue(p, "hudOffsetY", s.hudOffsetY));
+            s.dumpMenus = bool(p, "dumpMenus", s.dumpMenus);
         } catch (IOException | RuntimeException e) {
             // Bei Fehlern gelten die Standardwerte.
         }
