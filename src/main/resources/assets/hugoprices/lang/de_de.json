@@ -1,5 +1,5 @@
 {
   "key.category.hugoprices.main": "Hugo Preise",
-  "key.hugoprices.sell_all": "Item in der Hand komplett an Order verkaufen (2x druecken)",
-  "key.hugoprices.sell_menu": "Verkaufs-Menue (Menge waehlen)"
+  "key.hugoprices.sell_all": "Alles verkaufen: Item in der Hand / unter der Maus (2x druecken)",
+  "key.hugoprices.sell_menu": "Verkaufs-Menue: Item in der Hand / unter der Maus"
 }

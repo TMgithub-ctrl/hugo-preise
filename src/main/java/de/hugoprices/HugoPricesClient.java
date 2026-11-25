@@ -21,6 +21,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
 import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback;
@@ -80,6 +81,21 @@ public final class HugoPricesClient implements ClientModInitializer {
                 }
             });
             ScreenEvents.remove(screen).register(s -> onMenuClosed());
+            // Verkaufs-Tasten auch im Inventar/Menü: dann zählt das Item unter der Maus.
+            ScreenKeyboardEvents.afterKeyPress(screen).register((scr, key) -> {
+                if (SellAutomation.busy() || !(scr instanceof AbstractContainerScreen<?> acs)) {
+                    return;
+                }
+                ItemStack hovered = hoveredStack(acs);
+                if (hovered.isEmpty()) {
+                    return;
+                }
+                if (sellAllKey.matches(key)) {
+                    onSellAll(client, hovered);
+                } else if (sellMenuKey.matches(key)) {
+                    onSellMenu(client, hovered);
+                }
+            });
         });
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> BOOK.saveIfDirty(pricesFile));
 
@@ -106,16 +122,47 @@ public final class HugoPricesClient implements ClientModInitializer {
     }
 
     private static void onSellAllKey(Minecraft mc) {
+        if (mc.player != null) {
+            onSellAll(mc, mc.player.getMainHandItem());
+        }
+    }
+
+    private static void onSellMenuKey(Minecraft mc) {
+        if (mc.player != null) {
+            onSellMenu(mc, mc.player.getMainHandItem());
+        }
+    }
+
+    /** Item unter der Maus in einem Menü (Feld "hoveredSlot", seit 26.1 ohne Verschleierung per Name erreichbar). */
+    private static ItemStack hoveredStack(AbstractContainerScreen<?> screen) {
+        try {
+            java.lang.reflect.Field f = AbstractContainerScreen.class.getDeclaredField("hoveredSlot");
+            f.setAccessible(true);
+            Object slot = f.get(screen);
+            if (slot instanceof Slot s && !s.getItem().isEmpty()) {
+                return s.getItem();
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            // nicht gefunden: dann eben nicht
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private static void onSellAll(Minecraft mc, ItemStack hand) {
         if (mc.player == null || SellAutomation.busy()) {
             return;
         }
-        ItemStack hand = mc.player.getMainHandItem();
         if (hand.isEmpty() || !SellAutomation.plain(hand)) {
-            mc.gui.hud.setOverlayMessage(Component.literal("Nimm das Item, das du verkaufen willst, in die Hand")
+            mc.gui.hud.setOverlayMessage(Component.literal("Item in die Hand nehmen oder im Inventar mit der Maus drauf zeigen")
                     .withStyle(ChatFormatting.RED), false);
             return;
         }
         int have = SellAutomation.countInInventory(hand.getItem());
+        if (have <= 0) {
+            mc.gui.hud.setOverlayMessage(Component.literal("Davon hast du nichts im Inventar")
+                    .withStyle(ChatFormatting.RED), false);
+            return;
+        }
         long now = System.currentTimeMillis();
         if (now - sellAllArmedAt > 3000) {
             sellAllArmedAt = now;
@@ -132,13 +179,12 @@ public final class HugoPricesClient implements ClientModInitializer {
         SellAutomation.start(new SellAutomation.Job(hand.getItem(), path, -1, hand.getHoverName()));
     }
 
-    private static void onSellMenuKey(Minecraft mc) {
+    private static void onSellMenu(Minecraft mc, ItemStack hand) {
         if (mc.player == null || SellAutomation.busy()) {
             return;
         }
-        ItemStack hand = mc.player.getMainHandItem();
         if (hand.isEmpty() || !SellAutomation.plain(hand)) {
-            mc.gui.hud.setOverlayMessage(Component.literal("Nimm das Item, das du verkaufen willst, in die Hand")
+            mc.gui.hud.setOverlayMessage(Component.literal("Item in die Hand nehmen oder im Inventar mit der Maus drauf zeigen")
                     .withStyle(ChatFormatting.RED), false);
             return;
         }
