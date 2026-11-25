@@ -26,6 +26,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.Slot;
@@ -187,10 +188,9 @@ public final class HugoPricesClient implements ClientModInitializer {
 
         if (settings.showOrder && fwmStats != null && fwmStats.orderMax().isPresent()) {
             FwmParser.Value max = fwmStats.orderMax().get();
+            String avg = fwmStats.orderAvg().map(a -> ", \u00d8 " + MoneyFormat.compact(a.price(), cur)).orElse("");
             lines.add(Component.literal("Order: " + MoneyFormat.format(max.price(), cur)
-                    + " (hoechste, " + max.period() + ")").withStyle(ChatFormatting.AQUA));
-            fwmStats.orderAvg().ifPresent(avg -> lines.add(Component.literal("Order \u00d8: "
-                    + MoneyFormat.format(avg.price(), cur)).withStyle(ChatFormatting.DARK_AQUA)));
+                    + " (" + max.period() + avg + ")").withStyle(ChatFormatting.AQUA));
         }
         if (settings.showAh && fwmStats != null && fwmStats.ahAvg().isPresent()) {
             FwmParser.Value ah = fwmStats.ahAvg().get();
@@ -234,7 +234,13 @@ public final class HugoPricesClient implements ClientModInitializer {
                 }
             }
         }
-        if (fwmStats != null && !fwmStats.isEmpty()) {
+        if (settings.showValue) {
+            long unit = bestUnitPrice(web, fwmStats, gameKey, nowMs, maxAge);
+            if (unit > 0) {
+                addValueLine(stack, gameKey, unit, lines);
+            }
+        }
+        if (fwmStats != null && !fwmStats.isEmpty() && !hint) {
             lines.add(Component.literal("Quelle: FriendsWithMoney").withStyle(ChatFormatting.DARK_GRAY));
         } else if (fwmStats != null && lines.isEmpty() && !hint) {
             lines.add(Component.literal("Keine Marktdaten fuer dieses Item").withStyle(ChatFormatting.GRAY));
@@ -249,6 +255,65 @@ public final class HugoPricesClient implements ClientModInitializer {
             lines.add(Component.literal("Preise werden geladen ...").withStyle(ChatFormatting.DARK_GRAY));
         } else if (webError != null) {
             lines.add(Component.literal("Preise nicht abrufbar: " + webError).withStyle(ChatFormatting.RED));
+        }
+    }
+
+    /** Stückpreis für die Wert-Berechnung: bevorzugt der höchste Order-Preis (das bekommst du beim Verkaufen). */
+    private static long bestUnitPrice(MarketClient.Result web, FwmParser.Stats fwmStats, String gameKey, long nowMs,
+            long maxAge) {
+        if (fwmStats != null && fwmStats.orderMax().isPresent()) {
+            return fwmStats.orderMax().get().price();
+        }
+        Optional<PriceBook.Entry> g = BOOK.get(Mode.ORDER, gameKey, nowMs, maxAge);
+        if (g.isPresent()) {
+            return g.get().price();
+        }
+        if (web != null && web.order().isPresent()) {
+            return web.order().get().price();
+        }
+        if (fwmStats != null && fwmStats.ahAvg().isPresent()) {
+            return fwmStats.ahAvg().get().price();
+        }
+        return BOOK.get(Mode.AH, gameKey, nowMs, maxAge).map(PriceBook.Entry::price).orElse(0L);
+    }
+
+    /** Eine kurze Zeile: "Wert: x64 = $1,4 Mio · Inventar x320 = $7 Mio". */
+    private static void addValueLine(ItemStack stack, String gameKey, long unit, List<Component> lines) {
+        int stackCount = stack.getCount();
+        int invCount = 0;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc != null && mc.player != null) {
+            for (ItemStack s : mc.player.getInventory().getNonEquipmentItems()) {
+                if (!s.isEmpty() && s.getItem() == stack.getItem() && keyOf(s).equals(gameKey)) {
+                    invCount += s.getCount();
+                }
+            }
+        }
+        StringBuilder sb = new StringBuilder("Wert: ");
+        boolean any = false;
+        if (stackCount > 1) {
+            sb.append('x').append(stackCount).append(" = ").append(MoneyFormat.compact(times(unit, stackCount),
+                    settings.currencySymbol));
+            any = true;
+        }
+        if (invCount > 0 && invCount != stackCount) {
+            if (any) {
+                sb.append(" \u00b7 ");
+            }
+            sb.append("Inventar x").append(invCount).append(" = ")
+                    .append(MoneyFormat.compact(times(unit, invCount), settings.currencySymbol));
+            any = true;
+        }
+        if (any) {
+            lines.add(Component.literal(sb.toString()).withStyle(ChatFormatting.GREEN));
+        }
+    }
+
+    private static long times(long unit, int count) {
+        try {
+            return Math.multiplyExact(unit, (long) count);
+        } catch (ArithmeticException e) {
+            return Long.MAX_VALUE;
         }
     }
 

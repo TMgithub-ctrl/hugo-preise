@@ -56,6 +56,8 @@ public final class Settings {
     /** Schreibt das zuletzt gelesene AH-/Order-Menü in eine Textdatei (zur Fehlersuche). */
     public boolean dumpMenus = true;
     /** Preise von friendswithmoney.net holen (Betreiber hat zugestimmt). */
+    /** Zeile "Wert: x64 = ... · Inventar x320 = ..." anzeigen. */
+    public boolean showValue = true;
     public boolean fwmEnabled = true;
     public String fwmBaseUrl = "https://www.friendswithmoney.net/api/marketplace/items/";
     /** So lange (Sekunden) werden FWM-Preise zwischengespeichert. */
@@ -82,6 +84,8 @@ public final class Settings {
 
             showAh=true
             showOrder=true
+            # Gesamtwert des Stacks und von allem, was du davon im Inventar hast (Basis: hoechster Order-Preis).
+            showValue=true
             currencySymbol=$
 
             # So lange (Minuten) bleibt ein gemerkter Preis sichtbar, wenn du ihn nicht erneut siehst (1440 = 1 Tag).
@@ -142,6 +146,7 @@ public final class Settings {
             s.orderPriceIsTotal = bool(p, "orderPriceIsTotal", s.orderPriceIsTotal);
             s.showAh = bool(p, "showAh", s.showAh);
             s.showOrder = bool(p, "showOrder", s.showOrder);
+            s.showValue = bool(p, "showValue", s.showValue);
             String cur = p.getProperty("currencySymbol");
             if (cur != null && !cur.isBlank()) {
                 s.currencySymbol = cur.trim();

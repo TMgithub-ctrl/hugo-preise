@@ -22,6 +22,29 @@ public final class MoneyFormat {
         return (value < 0 ? "-" : "") + symbol + sb;
     }
 
+    /** Kurzform für große Beträge: 950000 -> "$950.000", 1400000 -> "$1,4 Mio", 2500000000 -> "$2,5 Mrd". */
+    public static String compact(long value, String symbol) {
+        long abs = Math.abs(value);
+        if (abs < 1_000_000L) {
+            return format(value, symbol);
+        }
+        double v;
+        String unit;
+        if (abs >= 1_000_000_000L) {
+            v = value / 1_000_000_000d;
+            unit = " Mrd";
+        } else {
+            v = value / 1_000_000d;
+            unit = " Mio";
+        }
+        String num = Math.abs(v) >= 100 ? String.format(java.util.Locale.GERMANY, "%.0f", v)
+                : String.format(java.util.Locale.GERMANY, "%.1f", v);
+        if (num.endsWith(",0")) {
+            num = num.substring(0, num.length() - 2);
+        }
+        return (value < 0 ? "-" : "") + symbol + num.replace("-", "") + unit;
+    }
+
     public static String age(long millis) {
         long minutes = Math.max(0, millis) / 60_000L;
         if (minutes < 1) {

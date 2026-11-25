@@ -134,6 +134,11 @@ public final class LogicTest {
         eq("$750", MoneyFormat.format(750, "$"), "format klein");
         eq("$1.000", MoneyFormat.format(1000, "$"), "format tausend");
         eq("$0", MoneyFormat.format(0, "$"), "format null");
+        eq("$950.000", MoneyFormat.compact(950000, "$"), "compact klein");
+        eq("$1,4 Mio", MoneyFormat.compact(1400000, "$"), "compact mio");
+        eq("$2 Mio", MoneyFormat.compact(2000000, "$"), "compact rund");
+        eq("$448 Mio", MoneyFormat.compact(448000000, "$"), "compact gross");
+        eq("$2,5 Mrd", MoneyFormat.compact(2500000000L, "$"), "compact mrd");
 
         System.out.println(passed + " Tests bestanden, " + failed + " fehlgeschlagen");
         if (failed > 0) {
