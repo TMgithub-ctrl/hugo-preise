@@ -107,6 +107,28 @@ public final class LogicTest {
         junk.loadLines(java.util.List.of("kaputt", "ORDER\tx\tabc\t1", "FOO\tx\t1\t1"), 0, day);
         eq(0, junk.size(), "kaputte zeilen ignoriert");
 
+        // FriendsWithMoney-Statistik (gekürzte echte Antwort)
+        String fwmJson = "{\"ok\":true,\"item\":{\"itemKey\":\"netherite_ingot\"},\"stats\":["
+                + "{\"period\":\"1h\",\"periodMinutes\":60,\"ahAvgPrice\":\"1554920.18796992\","
+                + "\"ordersAvgPrice\":\"1292759.93984962\",\"ordersMaxPrice\":\"1400000.00000000\","
+                + "\"ahEntryCount\":\"132\",\"ordersEntryCount\":\"18\"},"
+                + "{\"period\":\"24h\",\"periodMinutes\":1440,\"ahAvgPrice\":\"1555195.27\","
+                + "\"ordersAvgPrice\":\"1343449.51\",\"ordersMaxPrice\":\"1492762.00000000\","
+                + "\"ahEntryCount\":\"1088\",\"ordersEntryCount\":\"150\"}]}";
+        FwmParser.Stats st = FwmParser.parse(fwmJson);
+        eq(1400000L, st.orderMax().get().price(), "fwm order max 1h");
+        eq("1 Std", st.orderMax().get().period(), "fwm zeitraum");
+        eq(1292760L, st.orderAvg().get().price(), "fwm order avg gerundet");
+        eq(1554920L, st.ahAvg().get().price(), "fwm ah avg");
+        // 1h ohne Orders -> 24h wird genommen, AH bleibt bei 1h
+        String fwmJson2 = fwmJson.replace("\"ordersEntryCount\":\"18\"", "\"ordersEntryCount\":\"0\"");
+        FwmParser.Stats st2 = FwmParser.parse(fwmJson2);
+        eq(1492762L, st2.orderMax().get().price(), "fwm fallback 24h");
+        eq("24 Std", st2.orderMax().get().period(), "fwm fallback zeitraum");
+        eq("1 Std", st2.ahAvg().get().period(), "fwm ah bleibt 1h");
+        eq(true, FwmParser.parse("{\"ok\":false}").isEmpty(), "fwm ok false");
+        eq(true, FwmParser.parse("{\"ok\":true,\"stats\":[]}").isEmpty(), "fwm leer");
+
         // Formatierung
         eq("$1.500.000", MoneyFormat.format(1500000, "$"), "format");
         eq("$750", MoneyFormat.format(750, "$"), "format klein");

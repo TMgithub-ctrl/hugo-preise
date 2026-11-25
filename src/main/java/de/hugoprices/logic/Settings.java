@@ -55,6 +55,11 @@ public final class Settings {
     public int hudOffsetY = 4;
     /** Schreibt das zuletzt gelesene AH-/Order-Menü in eine Textdatei (zur Fehlersuche). */
     public boolean dumpMenus = true;
+    /** Preise von friendswithmoney.net holen (Betreiber hat zugestimmt). */
+    public boolean fwmEnabled = true;
+    public String fwmBaseUrl = "https://www.friendswithmoney.net/api/marketplace/items/";
+    /** So lange (Sekunden) werden FWM-Preise zwischengespeichert. */
+    public long fwmCacheSeconds = 300;
 
     private static final String DEFAULT_FILE = """
             # Cripzy's Hugo Preise - Einstellungen. Listen werden mit Komma getrennt, Gross-/Kleinschreibung egal.
@@ -105,6 +110,12 @@ public final class Settings {
 
             # Schreibt das zuletzt geoeffnete AH-/Order-Menue nach config/hugoprices-letztes-menue.txt (Fehlersuche).
             dumpMenus=true
+
+            # Preise von friendswithmoney.net (hoechster Order-Preis, Durchschnitte). Abruf hoechstens 1x pro Sekunde,
+            # jedes Item wird so viele Sekunden zwischengespeichert.
+            fwmEnabled=true
+            fwmBaseUrl=https://www.friendswithmoney.net/api/marketplace/items/
+            fwmCacheSeconds=300
             """;
 
     public static Settings load(Path file) {
@@ -153,6 +164,12 @@ public final class Settings {
             s.hudEnabled = bool(p, "hudEnabled", s.hudEnabled);
             s.hudOffsetY = (int) Math.max(0, longValue(p, "hudOffsetY", s.hudOffsetY));
             s.dumpMenus = bool(p, "dumpMenus", s.dumpMenus);
+            s.fwmEnabled = bool(p, "fwmEnabled", s.fwmEnabled);
+            String fwmUrl = p.getProperty("fwmBaseUrl");
+            if (fwmUrl != null && !fwmUrl.isBlank()) {
+                s.fwmBaseUrl = fwmUrl.trim();
+            }
+            s.fwmCacheSeconds = Math.max(60, longValue(p, "fwmCacheSeconds", s.fwmCacheSeconds));
         } catch (IOException | RuntimeException e) {
             // Bei Fehlern gelten die Standardwerte.
         }

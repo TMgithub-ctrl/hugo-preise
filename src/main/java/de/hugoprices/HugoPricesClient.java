@@ -1,5 +1,7 @@
 package de.hugoprices;
 
+import de.hugoprices.logic.FwmClient;
+import de.hugoprices.logic.FwmParser;
 import de.hugoprices.logic.ItemKeyBuilder;
 import de.hugoprices.logic.MarketClient;
 import de.hugoprices.logic.Mode;
@@ -39,6 +41,7 @@ public final class HugoPricesClient implements ClientModInitializer {
     public static final PriceBook BOOK = new PriceBook();
     private static Settings settings = new Settings();
     private static MarketClient market;
+    private static FwmClient fwm;
     private static Path pricesFile;
     private static Path dumpFile;
     private static long sessionCounter;
@@ -49,6 +52,7 @@ public final class HugoPricesClient implements ClientModInitializer {
     public void onInitializeClient() {
         settings = Settings.load(FabricLoader.getInstance().getConfigDir().resolve("hugoprices.properties"));
         market = new MarketClient(settings);
+        fwm = new FwmClient(settings);
         Path configDir = FabricLoader.getInstance().getConfigDir();
         pricesFile = configDir.resolve("hugoprices-preise.txt");
         dumpFile = configDir.resolve("hugoprices-letztes-menue.txt");
@@ -166,9 +170,37 @@ public final class HugoPricesClient implements ClientModInitializer {
         } else if (settings.webEnabled && isUnsupported(stack)) {
             lines.add(Component.literal("Preise: fuer diese Item-Art nicht verfuegbar").withStyle(ChatFormatting.GRAY));
         }
+        FwmParser.Stats fwmStats = null;
+        String fwmKey = settings.fwmEnabled ? fwmKeyOf(stack) : null;
+        if (fwmKey != null) {
+            FwmClient.Lookup fl = fwm.lookup(fwmKey);
+            if (fl.result() != null) {
+                fwmStats = fl.result().stats();
+            } else {
+                loading = loading || fl.loading();
+                if (webError == null && !fl.loading()) {
+                    webError = fl.error();
+                }
+            }
+        }
         String gameKey = keyOf(stack);
 
-        if (settings.showAh) {
+        if (settings.showOrder && fwmStats != null && fwmStats.orderMax().isPresent()) {
+            FwmParser.Value max = fwmStats.orderMax().get();
+            lines.add(Component.literal("Order: " + MoneyFormat.format(max.price(), cur)
+                    + " (hoechste, " + max.period() + ")").withStyle(ChatFormatting.AQUA));
+            fwmStats.orderAvg().ifPresent(avg -> lines.add(Component.literal("Order \u00d8: "
+                    + MoneyFormat.format(avg.price(), cur)).withStyle(ChatFormatting.DARK_AQUA)));
+        }
+        if (settings.showAh && fwmStats != null && fwmStats.ahAvg().isPresent()) {
+            FwmParser.Value ah = fwmStats.ahAvg().get();
+            lines.add(Component.literal("AH \u00d8: " + MoneyFormat.format(ah.price(), cur)
+                    + " (" + ah.period() + ")").withStyle(ChatFormatting.GOLD));
+        }
+        boolean fwmHasAh = fwmStats != null && fwmStats.ahAvg().isPresent();
+        boolean fwmHasOrder = fwmStats != null && fwmStats.orderMax().isPresent();
+
+        if (settings.showAh && !fwmHasAh) {
             Optional<Quote> q = web != null ? web.auction() : Optional.empty();
             if (q.isPresent()) {
                 lines.add(Component.literal("AH: " + MoneyFormat.format(q.get().price(), cur)
@@ -185,7 +217,7 @@ public final class HugoPricesClient implements ClientModInitializer {
                 }
             }
         }
-        if (settings.showOrder) {
+        if (settings.showOrder && !fwmHasOrder) {
             Optional<Quote> q = web != null ? web.order() : Optional.empty();
             if (q.isPresent()) {
                 lines.add(Component.literal("Order: " + MoneyFormat.format(q.get().price(), cur)
@@ -202,6 +234,11 @@ public final class HugoPricesClient implements ClientModInitializer {
                 }
             }
         }
+        if (fwmStats != null && !fwmStats.isEmpty()) {
+            lines.add(Component.literal("Quelle: FriendsWithMoney").withStyle(ChatFormatting.DARK_GRAY));
+        } else if (fwmStats != null && lines.isEmpty() && !hint) {
+            lines.add(Component.literal("Keine Marktdaten fuer dieses Item").withStyle(ChatFormatting.GRAY));
+        }
         if (hint && lines.isEmpty() && !loading && webError == null) {
             lines.add(Component.literal("Noch kein Preis bekannt").withStyle(ChatFormatting.GRAY));
             lines.add(Component.literal("/order " + BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath()
@@ -213,6 +250,18 @@ public final class HugoPricesClient implements ClientModInitializer {
         } else if (webError != null) {
             lines.add(Component.literal("Preise nicht abrufbar: " + webError).withStyle(ChatFormatting.RED));
         }
+    }
+
+    /** Schlüssel für friendswithmoney.net: nur unverzauberte Vanilla-Items, z. B. "netherite_ingot". */
+    private static String fwmKeyOf(ItemStack stack) {
+        if (isUnsupported(stack) || !enchantsOf(stack).isEmpty()) {
+            return null;
+        }
+        var id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        if (!"minecraft".equals(id.getNamespace())) {
+            return null;
+        }
+        return id.getPath();
     }
 
     /** Items, deren Marktschlüssel mehr als die ID braucht (Tränke, Spawner, Köpfe ...): nicht abfragen. */
