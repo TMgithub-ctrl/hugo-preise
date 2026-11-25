@@ -19,6 +19,10 @@ import java.util.List;
 import java.util.Optional;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.resources.Identifier;
 import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.loader.api.FabricLoader;
@@ -43,6 +47,10 @@ public final class HugoPricesClient implements ClientModInitializer {
     private static Settings settings = new Settings();
     private static MarketClient market;
     private static FwmClient fwm;
+    private static KeyMapping sellAllKey;
+    private static KeyMapping sellMenuKey;
+    /** Zeitpunkt des ersten Drucks auf "Alles verkaufen" (zweiter Druck innerhalb von 3 s bestätigt). */
+    private static long sellAllArmedAt;
     private static Path pricesFile;
     private static Path dumpFile;
     private static long sessionCounter;
@@ -80,6 +88,74 @@ public final class HugoPricesClient implements ClientModInitializer {
 
         // Anzeige oben rechts für den Block, auf den man schaut.
         BlockPriceHud.register(settings);
+
+        // Verkaufen an Order: Tasten (in Optionen > Steuerung > "Hugo Preise" einstellbar).
+        SellAutomation.init(settings);
+        KeyMapping.Category cat = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("hugoprices", "main"));
+        sellAllKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.hugoprices.sell_all", -1, cat));
+        sellMenuKey = KeyMappingHelper.registerKeyMapping(new KeyMapping("key.hugoprices.sell_menu", 78, cat)); // N
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            while (sellAllKey.consumeClick()) {
+                onSellAllKey(client);
+            }
+            while (sellMenuKey.consumeClick()) {
+                onSellMenuKey(client);
+            }
+            SellAutomation.tick(client);
+        });
+    }
+
+    private static void onSellAllKey(Minecraft mc) {
+        if (mc.player == null || SellAutomation.busy()) {
+            return;
+        }
+        ItemStack hand = mc.player.getMainHandItem();
+        if (hand.isEmpty() || !SellAutomation.plain(hand)) {
+            mc.gui.hud.setOverlayMessage(Component.literal("Nimm das Item, das du verkaufen willst, in die Hand")
+                    .withStyle(ChatFormatting.RED), false);
+            return;
+        }
+        int have = SellAutomation.countInInventory(hand.getItem());
+        long now = System.currentTimeMillis();
+        if (now - sellAllArmedAt > 3000) {
+            sellAllArmedAt = now;
+            long unit = unitPriceFor(hand);
+            String price = unit > 0 ? " fuer ca. " + MoneyFormat.compact(unit * (long) have, settings.currencySymbol)
+                    : "";
+            mc.gui.hud.setOverlayMessage(Component.literal("Nochmal druecken: alle " + have + "x "
+                    + hand.getHoverName().getString() + price + " an Order verkaufen").withStyle(ChatFormatting.YELLOW),
+                    false);
+            return;
+        }
+        sellAllArmedAt = 0;
+        String path = BuiltInRegistries.ITEM.getKey(hand.getItem()).getPath();
+        SellAutomation.start(new SellAutomation.Job(hand.getItem(), path, -1, hand.getHoverName()));
+    }
+
+    private static void onSellMenuKey(Minecraft mc) {
+        if (mc.player == null || SellAutomation.busy()) {
+            return;
+        }
+        ItemStack hand = mc.player.getMainHandItem();
+        if (hand.isEmpty() || !SellAutomation.plain(hand)) {
+            mc.gui.hud.setOverlayMessage(Component.literal("Nimm das Item, das du verkaufen willst, in die Hand")
+                    .withStyle(ChatFormatting.RED), false);
+            return;
+        }
+        mc.gui.setScreen(new SellScreen(hand, settings.currencySymbol));
+    }
+
+    /** Bester bekannter Stückpreis (höchste Order) für die Verkaufs-Anzeige. 0 = unbekannt. */
+    static long unitPriceFor(ItemStack stack) {
+        long nowMs = System.currentTimeMillis();
+        long maxAge = settings.maxAgeMinutes * 60_000L;
+        FwmParser.Stats st = null;
+        String fwmKey = settings.fwmEnabled ? fwmKeyOf(stack) : null;
+        if (fwmKey != null) {
+            FwmClient.Lookup fl = fwm.lookup(fwmKey);
+            st = fl.result() != null ? fl.result().stats() : null;
+        }
+        return bestUnitPrice(null, st, keyOf(stack), nowMs, maxAge);
     }
 
     private static void onMenuClosed() {
