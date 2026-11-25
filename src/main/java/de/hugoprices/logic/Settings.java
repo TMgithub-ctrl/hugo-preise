@@ -49,6 +49,10 @@ public final class Settings {
     public boolean onlyEnchanted = false;
     /** Trennzeichen zwischen mehreren Verzauberungen im Item-Schlüssel (nicht bestätigt). */
     public String enchantSeparator = ",";
+    /** Anzeige oben rechts: Preis des Blocks, auf den du schaust. */
+    public boolean hudEnabled = true;
+    /** Abstand der Anzeige vom oberen Bildschirmrand (Pixel, GUI-Skala). */
+    public int hudOffsetY = 4;
 
     private static final String DEFAULT_FILE = """
             # Cripzy's Hugo Preise - Einstellungen. Listen werden mit Komma getrennt, Gross-/Kleinschreibung egal.
@@ -90,6 +94,11 @@ public final class Settings {
             onlyEnchanted=false
             # Trennzeichen zwischen mehreren Verzauberungen im Item-Schluessel.
             enchantSeparator=,
+
+            # Anzeige oben rechts mit dem Preis des Blocks, auf den du schaust (wie WAILA).
+            hudEnabled=true
+            # Abstand vom oberen Rand, z. B. hoeher setzen, falls dort schon etwas anderes angezeigt wird.
+            hudOffsetY=4
             """;
 
     public static Settings load(Path file) {
@@ -135,6 +144,8 @@ public final class Settings {
             if (sep != null && !sep.isEmpty()) {
                 s.enchantSeparator = sep;
             }
+            s.hudEnabled = bool(p, "hudEnabled", s.hudEnabled);
+            s.hudOffsetY = (int) Math.max(0, longValue(p, "hudOffsetY", s.hudOffsetY));
         } catch (IOException | RuntimeException e) {
             // Bei Fehlern gelten die Standardwerte.
         }

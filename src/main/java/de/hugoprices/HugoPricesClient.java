@@ -56,6 +56,9 @@ public final class HugoPricesClient implements ClientModInitializer {
 
         // Tooltip: Preise anhängen.
         ItemTooltipCallback.EVENT.register((stack, context, flag, lines) -> addPriceLines(stack, lines));
+
+        // Anzeige oben rechts für den Block, auf den man schaut.
+        BlockPriceHud.register(settings);
     }
 
     private static void scan(AbstractContainerScreen<?> screen) {
@@ -86,7 +89,7 @@ public final class HugoPricesClient implements ClientModInitializer {
         }
     }
 
-    private static void addPriceLines(ItemStack stack, List<Component> lines) {
+    static void addPriceLines(ItemStack stack, List<Component> lines) {
         if (stack.isEmpty()) {
             return;
         }
