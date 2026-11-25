@@ -62,6 +62,10 @@ public final class Settings {
     public long wealthMinValue = 25_000;
     /** Knopf "Vermögen" oben am Inventar anzeigen. */
     public boolean wealthButton = true;
+    /** Werkzeuge (Spitzhacke, Axt, Schaufel, Hacke, Schere, Angel ...) nicht zum Vermögen zählen. */
+    public boolean wealthExcludeTools = true;
+    /** Waffen und Rüstung nicht zum Vermögen zählen. */
+    public boolean wealthExcludeGear = false;
     public boolean fwmEnabled = true;
     public String fwmBaseUrl = "https://www.friendswithmoney.net/api/marketplace/items/";
     /** So lange (Sekunden) werden FWM-Preise zwischengespeichert. */
@@ -122,6 +126,9 @@ public final class Settings {
             # Vermoegen: nur Items mit mindestens diesem Gesamtwert zaehlen; Knopf oben am Inventar an/aus.
             wealthMinValue=25000
             wealthButton=true
+            # Werkzeuge bzw. Waffen/Ruestung aus dem Vermoegen herausnehmen.
+            wealthExcludeTools=true
+            wealthExcludeGear=false
 
             # Preise von friendswithmoney.net (hoechster Order-Preis, Durchschnitte). Abruf hoechstens 1x pro Sekunde,
             # jedes Item wird so viele Sekunden zwischengespeichert.
@@ -179,6 +186,8 @@ public final class Settings {
             s.dumpMenus = bool(p, "dumpMenus", s.dumpMenus);
             s.wealthMinValue = Math.max(0, longValue(p, "wealthMinValue", s.wealthMinValue));
             s.wealthButton = bool(p, "wealthButton", s.wealthButton);
+            s.wealthExcludeTools = bool(p, "wealthExcludeTools", s.wealthExcludeTools);
+            s.wealthExcludeGear = bool(p, "wealthExcludeGear", s.wealthExcludeGear);
             s.fwmEnabled = bool(p, "fwmEnabled", s.fwmEnabled);
             String fwmUrl = p.getProperty("fwmBaseUrl");
             if (fwmUrl != null && !fwmUrl.isBlank()) {

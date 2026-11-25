@@ -71,7 +71,7 @@ final class WealthScreen extends Screen {
         int below = 0;
         for (Map.Entry<String, Integer> e : totals.entrySet()) {
             ItemStack icon = HugoPricesClient.stackForKey(e.getKey());
-            if (icon.isEmpty()) {
+            if (icon.isEmpty() || HugoPricesClient.excludedFromWealth(e.getKey())) {
                 continue;
             }
             long unit = HugoPricesClient.unitPriceForKey(e.getKey(), icon);

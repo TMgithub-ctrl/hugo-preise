@@ -291,6 +291,31 @@ public final class HugoPricesClient implements ClientModInitializer {
         return out;
     }
 
+    private static final String[] TOOL_SUFFIXES = {"_pickaxe", "_axe", "_shovel", "_hoe", "shears", "fishing_rod",
+            "flint_and_steel", "brush", "carrot_on_a_stick", "warped_fungus_on_a_stick"};
+    private static final String[] GEAR_SUFFIXES = {"_sword", "_spear", "_helmet", "_chestplate", "_leggings", "_boots",
+            "bow", "crossbow", "trident", "mace", "shield", "elytra", "turtle_helmet", "wolf_armor", "_horse_armor"};
+
+    /** Werkzeuge (und auf Wunsch Waffen/Rüstung) zählen nicht zum Vermögen. */
+    static boolean excludedFromWealth(String key) {
+        int bar = key.indexOf('|');
+        String id = bar < 0 ? key : key.substring(0, bar);
+        String path = id.substring(id.indexOf(':') + 1);
+        if (settings.wealthExcludeTools && endsWithAny(path, TOOL_SUFFIXES)) {
+            return true;
+        }
+        return settings.wealthExcludeGear && endsWithAny(path, GEAR_SUFFIXES);
+    }
+
+    private static boolean endsWithAny(String path, String[] suffixes) {
+        for (String s : suffixes) {
+            if (path.endsWith(s)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static long settingsWealthMin() {
         return settings.wealthMinValue;
     }
