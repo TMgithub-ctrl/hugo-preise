@@ -107,6 +107,13 @@ public final class LogicTest {
         junk.loadLines(java.util.List.of("kaputt", "ORDER\tx\tabc\t1", "FOO\tx\t1\t1"), 0, day);
         eq(0, junk.size(), "kaputte zeilen ignoriert");
 
+        // Versionen
+        eq("1.13.0", VersionUtil.fromFileName("cripzys-hugo-preise-1.13.0.jar").get(), "version aus datei");
+        eq(false, VersionUtil.fromFileName("cripzys-hugo-preise-1.13.0-sources.jar").isPresent(), "sources ignoriert");
+        eq(true, VersionUtil.compare("1.13.0", "1.9.0") > 0, "1.13 neuer als 1.9");
+        eq(true, VersionUtil.compare("1.10.0", "1.10") == 0, "1.10.0 = 1.10");
+        eq(true, VersionUtil.compare("1.12.0", "1.13.0") < 0, "1.12 aelter");
+
         // Amboss
         eq(7L, AnvilCalc.pointsForLevels(1), "xp 1 level");
         eq(1395L, AnvilCalc.pointsForLevels(30), "xp 30 level");

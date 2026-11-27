@@ -60,6 +60,8 @@ public final class Settings {
     public boolean showValue = true;
     /** Bei verzauberten Werkzeugen/Waffen/Rüstung: Kosten zum Selberbauen (Werkzeug + Bücher + XP). */
     public boolean showBuildCost = true;
+    /** Beim Start auf GitHub nach neuen Versionen schauen und im Hauptmenü fragen. */
+    public boolean updateCheck = true;
     /** Vermögen: nur Items zählen, deren Gesamtwert mindestens so hoch ist. */
     public long wealthMinValue = 25_000;
     /** Knopf "Vermögen" oben am Inventar anzeigen. */
@@ -98,6 +100,8 @@ public final class Settings {
             showValue=true
             # Verzauberte Werkzeuge: was kostet es, das selbst zu bauen (Werkzeug + Buecher + Amboss-XP)?
             showBuildCost=true
+            # Beim Start nach Updates schauen und im Hauptmenue fragen, ob installiert werden soll.
+            updateCheck=true
             currencySymbol=$
 
             # So lange (Minuten) bleibt ein gemerkter Preis sichtbar, wenn du ihn nicht erneut siehst (1440 = 1 Tag).
@@ -167,6 +171,7 @@ public final class Settings {
             s.showOrder = bool(p, "showOrder", s.showOrder);
             s.showValue = bool(p, "showValue", s.showValue);
             s.showBuildCost = bool(p, "showBuildCost", s.showBuildCost);
+            s.updateCheck = bool(p, "updateCheck", s.updateCheck);
             String cur = p.getProperty("currencySymbol");
             if (cur != null && !cur.isBlank()) {
                 s.currencySymbol = cur.trim();

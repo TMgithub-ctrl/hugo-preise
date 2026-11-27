@@ -157,6 +157,12 @@ public final class HugoPricesClient implements ClientModInitializer {
         // Anzeige oben rechts für den Block, auf den man schaut.
         BlockPriceHud.register(settings);
 
+        // Updates: alte Dateien aufräumen, im Hintergrund nach neuer Version schauen
+        if (settings.updateCheck) {
+            Updater.cleanupOldVersions();
+            Updater.checkAsync();
+        }
+
         // Verkaufen an Order: Tasten (in Optionen > Steuerung > "Hugo Preise" einstellbar).
         SellAutomation.init(settings);
         KeyMapping.Category cat = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("hugoprices", "main"));
@@ -176,6 +182,10 @@ public final class HugoPricesClient implements ClientModInitializer {
                 }
             }
             SellAutomation.tick(client);
+            if (settings.updateCheck) {
+                Updater.tick(client);
+                Updater.showStatus(client);
+            }
         });
     }
 
