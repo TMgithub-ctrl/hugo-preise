@@ -58,6 +58,8 @@ public final class Settings {
     /** Preise von friendswithmoney.net holen (Betreiber hat zugestimmt). */
     /** Zeile "Wert: x64 = ... · Inventar x320 = ..." anzeigen. */
     public boolean showValue = true;
+    /** Bei verzauberten Werkzeugen/Waffen/Rüstung: Kosten zum Selberbauen (Werkzeug + Bücher + XP). */
+    public boolean showBuildCost = true;
     /** Vermögen: nur Items zählen, deren Gesamtwert mindestens so hoch ist. */
     public long wealthMinValue = 25_000;
     /** Knopf "Vermögen" oben am Inventar anzeigen. */
@@ -94,6 +96,8 @@ public final class Settings {
             showOrder=true
             # Gesamtwert des Stacks und von allem, was du davon im Inventar hast (Basis: hoechster Order-Preis).
             showValue=true
+            # Verzauberte Werkzeuge: was kostet es, das selbst zu bauen (Werkzeug + Buecher + Amboss-XP)?
+            showBuildCost=true
             currencySymbol=$
 
             # So lange (Minuten) bleibt ein gemerkter Preis sichtbar, wenn du ihn nicht erneut siehst (1440 = 1 Tag).
@@ -162,6 +166,7 @@ public final class Settings {
             s.showAh = bool(p, "showAh", s.showAh);
             s.showOrder = bool(p, "showOrder", s.showOrder);
             s.showValue = bool(p, "showValue", s.showValue);
+            s.showBuildCost = bool(p, "showBuildCost", s.showBuildCost);
             String cur = p.getProperty("currencySymbol");
             if (cur != null && !cur.isBlank()) {
                 s.currencySymbol = cur.trim();

@@ -1,5 +1,6 @@
 package de.hugoprices;
 
+import de.hugoprices.logic.AnvilCalc;
 import de.hugoprices.logic.ChestStore;
 import de.hugoprices.logic.FwmClient;
 import de.hugoprices.logic.FwmParser;
@@ -590,6 +591,9 @@ public final class HugoPricesClient implements ClientModInitializer {
                 addValueLine(stack, gameKey, unit, lines);
             }
         }
+        if (!hint && settings.showBuildCost) {
+            addBuildLines(stack, lines, cur);
+        }
         if (fwmStats != null && !fwmStats.isEmpty() && !hint) {
             lines.add(Component.literal("Quelle: FriendsWithMoney").withStyle(ChatFormatting.DARK_GRAY));
         } else if (fwmStats != null && lines.isEmpty() && !hint) {
@@ -667,8 +671,118 @@ public final class HugoPricesClient implements ClientModInitializer {
         }
     }
 
-    /** Schlüssel für friendswithmoney.net: nur unverzauberte Vanilla-Items, z. B. "netherite_ingot". */
+    // ---------- Kaufen oder selbst bauen (verzauberte Werkzeuge/Waffen/Rüstung) ----------
+
+    private static final Map<String, AnvilCalc.Result> ANVIL_CACHE = new HashMap<>();
+
+    /** Einkaufspreis bei FWM: AH-Durchschnitt, sonst Order-Durchschnitt. -1 = lädt noch, 0 = unbekannt. */
+    private static long buyPrice(String fwmKey) {
+        FwmClient.Lookup l = fwm.lookup(fwmKey);
+        if (l.result() == null) {
+            return l.loading() ? -1 : 0;
+        }
+        FwmParser.Stats st = l.result().stats();
+        if (st.ahAvg().isPresent()) {
+            return st.ahAvg().get().price();
+        }
+        return st.orderAvg().map(FwmParser.Value::price).orElse(0L);
+    }
+
+    private static void addBuildLines(ItemStack stack, List<Component> lines, String cur) {
+        var ench = stack.get(DataComponents.ENCHANTMENTS);
+        if (ench == null || ench.isEmpty() || !settings.fwmEnabled) {
+            return;
+        }
+        String path = BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath();
+        List<AnvilCalc.Enchant> list = new ArrayList<>();
+        List<String> bookKeys = new ArrayList<>();
+        ench.entrySet().forEach(e -> {
+            String full = e.getKey().getRegisteredName();
+            list.add(new AnvilCalc.Enchant(full, e.getIntValue()));
+            bookKeys.add("enchanted_book#" + full.substring(full.indexOf(':') + 1) + "_" + e.getIntValue());
+        });
+        boolean loading = false;
+        List<String> missing = new ArrayList<>();
+        long books = 0;
+        for (String k : bookKeys) {
+            long p = buyPrice(k);
+            if (p < 0) {
+                loading = true;
+            } else if (p == 0) {
+                missing.add(k.substring(k.indexOf('#') + 1));
+            } else {
+                books += p;
+            }
+        }
+        long base = buyPrice(path);
+        if (base == 0 && path.startsWith("netherite_")) {
+            long d = buyPrice("diamond_" + path.substring("netherite_".length()));
+            long ingot = buyPrice("netherite_ingot");
+            long tpl = buyPrice("netherite_upgrade_smithing_template");
+            base = d < 0 || ingot < 0 || tpl < 0 ? -1 : (d > 0 && ingot > 0 ? d + ingot + Math.max(0, tpl) : 0);
+        }
+        if (base < 0) {
+            loading = true;
+        } else if (base == 0) {
+            missing.add("Werkzeug ohne Verzauberung");
+        }
+        long bottle = buyPrice("experience_bottle");
+        if (bottle < 0) {
+            loading = true;
+        }
+        if (loading) {
+            lines.add(Component.literal("Selbst bauen: Preise werden geladen ...").withStyle(ChatFormatting.DARK_GRAY));
+            return;
+        }
+        String sig = list.toString();
+        AnvilCalc.Result anvil = ANVIL_CACHE.computeIfAbsent(sig, k -> AnvilCalc.cost(list));
+        if (ANVIL_CACHE.size() > 500) {
+            ANVIL_CACHE.clear();
+        }
+        if (!anvil.possible()) {
+            lines.add(Component.literal("Selbst bauen: im Amboss nicht machbar (ueber 39 Level)")
+                    .withStyle(ChatFormatting.LIGHT_PURPLE));
+            return;
+        }
+        if (!missing.isEmpty()) {
+            lines.add(Component.literal("Selbst bauen: kein Preis fuer " + String.join(", ", missing))
+                    .withStyle(ChatFormatting.DARK_GRAY));
+            return;
+        }
+        long xp = bottle > 0 ? Math.round(anvil.xpPoints() / 7.0 * bottle) : 0; // Ø 7 XP pro Erfahrungsflasche
+        long build = base + books + xp;
+        lines.add(Component.literal("Selbst bauen: ca. " + MoneyFormat.compact(build, cur)).withStyle(ChatFormatting.AQUA));
+        lines.add(Component.literal("  Werkzeug " + MoneyFormat.compact(base, cur) + " + Buecher "
+                + MoneyFormat.compact(books, cur) + " + XP " + MoneyFormat.compact(xp, cur) + " (max "
+                + anvil.maxStepLevels() + " Lvl)").withStyle(ChatFormatting.DARK_GRAY));
+        Optional<PriceExtractor.Result> listing = PriceExtractor.extract(loreOf(stack), settings);
+        if (listing.isPresent()) {
+            long ask = listing.get().price();
+            if (ask <= build) {
+                lines.add(Component.literal("-> Kaufen lohnt sich, spart ca. " + MoneyFormat.compact(build - ask, cur))
+                        .withStyle(ChatFormatting.GREEN));
+            } else {
+                lines.add(Component.literal("-> Selbst bauen ist ca. " + MoneyFormat.compact(ask - build, cur)
+                        + " guenstiger").withStyle(ChatFormatting.RED));
+            }
+        }
+    }
+
+    /** Schlüssel für friendswithmoney.net: unverzauberte Vanilla-Items ("netherite_ingot") und Bücher mit einer
+     * Verzauberung ("enchanted_book#efficiency_5"). */
     private static String fwmKeyOf(ItemStack stack) {
+        if (stack.getItem() == net.minecraft.world.item.Items.ENCHANTED_BOOK) {
+            var stored = stack.get(DataComponents.STORED_ENCHANTMENTS);
+            if (stored == null || stored.size() != 1) {
+                return null;
+            }
+            String[] key = {null};
+            stored.entrySet().forEach(e -> {
+                String full = e.getKey().getRegisteredName();
+                key[0] = "enchanted_book#" + full.substring(full.indexOf(':') + 1) + "_" + e.getIntValue();
+            });
+            return key[0];
+        }
         if (isUnsupported(stack) || !enchantsOf(stack).isEmpty()) {
             return null;
         }

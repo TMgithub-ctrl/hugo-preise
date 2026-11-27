@@ -107,6 +107,26 @@ public final class LogicTest {
         junk.loadLines(java.util.List.of("kaputt", "ORDER\tx\tabc\t1", "FOO\tx\t1\t1"), 0, day);
         eq(0, junk.size(), "kaputte zeilen ignoriert");
 
+        // Amboss
+        eq(7L, AnvilCalc.pointsForLevels(1), "xp 1 level");
+        eq(1395L, AnvilCalc.pointsForLevels(30), "xp 30 level");
+        eq(2727L, AnvilCalc.pointsForLevels(39), "xp 39 level");
+        eq(2920L, AnvilCalc.pointsForLevels(40), "xp 40 level");
+        AnvilCalc.Result one = AnvilCalc.cost(java.util.List.of(new AnvilCalc.Enchant("minecraft:efficiency", 5)));
+        eq(true, one.possible(), "amboss 1 buch moeglich");
+        eq(5, one.maxStepLevels(), "amboss eff5 = 5 level");
+        eq(55L, one.xpPoints(), "amboss eff5 punkte");
+        java.util.List<AnvilCalc.Enchant> god = java.util.List.of(new AnvilCalc.Enchant("minecraft:efficiency", 5),
+                new AnvilCalc.Enchant("minecraft:unbreaking", 3), new AnvilCalc.Enchant("minecraft:mending", 1),
+                new AnvilCalc.Enchant("minecraft:fortune", 3));
+        AnvilCalc.Result g = AnvilCalc.cost(god);
+        eq(true, g.possible(), "god pickaxe moeglich");
+        eq(true, g.maxStepLevels() < 40, "kein schritt zu teuer");
+        eq(4, g.steps(), "4 kombinationen");
+        // Ein einzelnes Buch mit 40+ Leveln geht nicht
+        eq(false, AnvilCalc.cost(java.util.List.of(new AnvilCalc.Enchant("minecraft:thorns", 10))).possible(),
+                "zu teuer erkannt");
+
         // Kisten-Speicher
         ChestStore cs = new ChestStore();
         cs.put("srv|ow|1,64,1", java.util.Map.of("minecraft:diamond", 64, "minecraft:stone", 10), 1000);
